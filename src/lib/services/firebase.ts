@@ -66,21 +66,22 @@ const googleProvider = new GoogleAuthProvider();
 // 인증 (Auth)
 // ============================================================
 
-/** Google 로그인. 모바일은 redirect, PC는 popup 사용. */
+/** Google 로그인. popup 시도 → 실패 시 redirect로 fallback */
 export async function loginWithGoogle(): Promise<User | null> {
 	if (!browser) return null;
 	try {
 		const auth = getFirebaseAuth();
 		const db = getFirebaseDb();
 
-		// ★ 모바일 감지 → redirect 방식 (팝업 차단 문제 회피)
-		const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 		let result;
-		if (isMobile) {
-			await signInWithRedirect(auth, googleProvider);
-			return null; // redirect 후 페이지 새로고침됨 → handleRedirectResult에서 처리
-		} else {
+		try {
+			// ★ 먼저 popup 시도
 			result = await signInWithPopup(auth, googleProvider);
+		} catch (popupError: any) {
+			console.warn('팝업 로그인 실패, redirect로 전환:', popupError?.code);
+			// ★ popup 실패 시 redirect로 fallback (모바일, 팝업 차단 등)
+			await signInWithRedirect(auth, googleProvider);
+			return null; // redirect 후 페이지 새로고침됨
 		}
 		const firebaseUser = result.user;
 

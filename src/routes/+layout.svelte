@@ -35,15 +35,25 @@
 
 	let showInAppWarning = $state(false);
 
+	let loginLoading = $state(false);
+
 	async function handleLogin() {
-		// ★ 인앱 브라우저면 외부 브라우저 유도
 		if (isInAppBrowser()) {
 			showInAppWarning = true;
 			return;
 		}
-		const result = await loginWithGoogle();
-		if (result) {
-			goto('/profile');
+		loginLoading = true;
+		try {
+			const result = await loginWithGoogle();
+			if (result) {
+				goto('/profile');
+			}
+			// result가 null이면 redirect 중 (페이지 새로고침됨)
+		} catch (err) {
+			console.error('로그인 에러:', err);
+			alert('로그인에 실패했습니다. 다시 시도해주세요.');
+		} finally {
+			loginLoading = false;
 		}
 	}
 
@@ -73,8 +83,8 @@
 				로그아웃
 			</button>
 		{:else}
-			<button onclick={handleLogin} class="btn-primary text-sm">
-				Google 로그인
+			<button onclick={handleLogin} class="btn-primary text-sm" disabled={loginLoading}>
+				{loginLoading ? '로그인 중...' : 'Google 로그인'}
 			</button>
 		{/if}
 	</div>

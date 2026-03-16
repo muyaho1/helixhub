@@ -50,10 +50,17 @@
 		}
 
 		try {
-			realUsers = await getAllUsers();
+			// ★ 10초 타임아웃 — Firestore 응답 없으면 빈 상태로 진행
+			const timeout = new Promise<User[]>((_, reject) =>
+				setTimeout(() => reject(new Error('timeout')), 10000)
+			);
+			realUsers = await Promise.race([getAllUsers(), timeout]);
 			users = realUsers;
 		} catch (error) {
 			console.error('유저 목록 로드 실패:', error);
+			// ★ 에러여도 로딩 해제 → 빈 나선이라도 보여줌
+			realUsers = [];
+			users = [];
 		}
 		isLoading = false;
 	});
