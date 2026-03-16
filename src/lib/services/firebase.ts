@@ -2,7 +2,7 @@
 // 브라우저에서만 초기화됨 (SSR 안전)
 
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, type Auth } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, type Auth } from 'firebase/auth';
 import {
 	getFirestore,
 	doc,
@@ -66,13 +66,22 @@ const googleProvider = new GoogleAuthProvider();
 // 인증 (Auth)
 // ============================================================
 
-/** Google 로그인 팝업. 최초 로그인 시 Firestore에 유저 문서 생성. */
+/** Google 로그인. 모바일은 redirect, PC는 popup 사용. */
 export async function loginWithGoogle(): Promise<User | null> {
 	if (!browser) return null;
 	try {
 		const auth = getFirebaseAuth();
 		const db = getFirebaseDb();
-		const result = await signInWithPopup(auth, googleProvider);
+
+		// ★ 모바일 감지 → redirect 방식 (팝업 차단 문제 회피)
+		const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+		let result;
+		if (isMobile) {
+			await signInWithRedirect(auth, googleProvider);
+			return null; // redirect 후 페이지 새로고침됨 → handleRedirectResult에서 처리
+		} else {
+			result = await signInWithPopup(auth, googleProvider);
+		}
 		const firebaseUser = result.user;
 
 		// Firestore에 유저가 있는지 확인
@@ -105,6 +114,44 @@ export async function loginWithGoogle(): Promise<User | null> {
 		return userDoc.data() as User;
 	} catch (error) {
 		console.error('로그인 실패:', error);
+		return null;
+	}
+}
+
+/** ★ 모바일 redirect 결과 처리 (페이지 로드 시 호출) */
+export async function handleRedirectResult(): Promise<User | null> {
+	if (!browser) return null;
+	try {
+		const auth = getFirebaseAuth();
+		const db = getFirebaseDb();
+		const result = await getRedirectResult(auth);
+		if (!result) return null;
+
+		const firebaseUser = result.user;
+		const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+
+		if (!userDoc.exists()) {
+			const usersSnapshot = await getDocs(collection(db, 'users'));
+			const nextPosition = usersSnapshot.size + 1;
+			const bases: BaseType[] = ['A', 'T', 'G', 'C'];
+
+			const newUser: Omit<User, 'createdAt'> & { createdAt: ReturnType<typeof serverTimestamp> } = {
+				uid: firebaseUser.uid,
+				name: firebaseUser.displayName || '이름 없음',
+				email: firebaseUser.email || '',
+				photoURL: firebaseUser.photoURL,
+				bio: '',
+				color: bases[(nextPosition - 1) % 4],
+				position: nextPosition,
+				createdAt: serverTimestamp()
+			};
+			await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+			return { ...newUser, createdAt: new Date() } as User;
+		}
+
+		return userDoc.data() as User;
+	} catch (error) {
+		console.error('Redirect 결과 처리 실패:', error);
 		return null;
 	}
 }

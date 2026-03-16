@@ -1,6 +1,6 @@
 // 인증 상태 관리 — 현재 로그인된 유저 정보
 import { onAuthStateChanged } from 'firebase/auth';
-import { getAuthInstance, getUserById } from '$lib/services/firebase';
+import { getAuthInstance, getUserById, handleRedirectResult } from '$lib/services/firebase';
 import { browser } from '$app/environment';
 import type { User } from '$lib/types';
 
@@ -14,6 +14,10 @@ export function initAuth() {
 	isInitialized = true;
 
 	const auth = getAuthInstance();
+
+	// ★ 모바일 redirect 결과 처리 (페이지 새로고침 후)
+	handleRedirectResult().catch(() => {});
+
 	onAuthStateChanged(auth, async (firebaseUser) => {
 		if (firebaseUser) {
 			const user = await getUserById(firebaseUser.uid);
