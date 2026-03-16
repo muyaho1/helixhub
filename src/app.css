@@ -1,0 +1,87 @@
+@import 'tailwindcss';
+
+/* HelixHub 글로벌 스타일 — 다크 퍼플 바이오 테마 */
+
+:root {
+	/* 배경 */
+	--bg-deep: #0d0b1a;
+	--bg-violet: #1a1035;
+	--bg-indigo: #1e1245;
+
+	/* 나선 */
+	--helix-mint: #6bcaad;
+	--helix-coral: #e07a6b;
+	--helix-connector: #9b8ec4;
+
+	/* 강조 */
+	--accent-lavender: #c4b5fd;
+	--accent-purple: #a78bfa;
+	--accent-cyan: #5dade2;
+
+	/* 텍스트 */
+	--text-primary: #f0f0f8;
+	--text-secondary: #9690b0;
+
+	/* 상태 */
+	--success: #6bcaad;
+	--error: #e07a6b;
+}
+
+/* 전체 배경: 다크 퍼플 그라데이션 */
+html,
+body {
+	margin: 0;
+	padding: 0;
+	background: radial-gradient(ellipse at center, var(--bg-indigo) 0%, var(--bg-violet) 40%, var(--bg-deep) 100%);
+	color: var(--text-primary);
+	font-family:
+		'Pretendard',
+		-apple-system,
+		BlinkMacSystemFont,
+		system-ui,
+		sans-serif;
+	min-height: 100vh;
+	overflow-x: hidden;
+}
+
+/* 글래스모피즘 카드 */
+.glass-card {
+	background: rgba(26, 16, 53, 0.6);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	border: 1px solid rgba(155, 142, 196, 0.15);
+	border-radius: 16px;
+	box-shadow: 0 8px 32px rgba(13, 11, 26, 0.5);
+}
+
+/* 글래스 네비게이션 바 */
+.glass-nav {
+	background: rgba(13, 11, 26, 0.7);
+	backdrop-filter: blur(16px);
+	-webkit-backdrop-filter: blur(16px);
+	border-bottom: 1px solid rgba(155, 142, 196, 0.1);
+}
+
+/* 라벤더 버튼 */
+.btn-primary {
+	background: var(--accent-lavender);
+	color: var(--bg-deep);
+	font-weight: 600;
+	border-radius: 12px;
+	padding: 0.5rem 1.5rem;
+	transition: all 0.2s ease;
+}
+.btn-primary:hover {
+	background: #d4c8fd;
+	box-shadow: 0 0 20px rgba(196, 181, 253, 0.3);
+}
+
+/* 링크 스타일 */
+a {
+	color: var(--accent-lavender);
+	text-decoration: none;
+	transition: color 0.2s;
+}
+a:hover {
+	color: #d4c8fd;
+}
