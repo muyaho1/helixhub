@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { getUserById, getProjectsByUser, createProject, deleteProject } from '$lib/services/firebase';
+	import { getUserById, getProjectsByUser, createProject, deleteProject, updateProject } from '$lib/services/firebase';
 	import { getCurrentUser } from '$lib/stores/auth.svelte';
 	import { onMount } from 'svelte';
 	import type { User, Project, ProjectType } from '$lib/types';
@@ -106,6 +106,55 @@
 		newTitle = ''; newDesc = ''; newDemoURL = ''; newGithubURL = '';
 		showForm = false;
 		isSubmitting = false;
+	}
+
+	// ★ 수정 모드
+	let editingId = $state<string | null>(null);
+	let editTitle = $state('');
+	let editDesc = $state('');
+	let editWeek = $state(1);
+	let editType = $state<ProjectType>('web');
+	let editDemoURL = $state('');
+	let editGithubURL = $state('');
+
+	function startEdit(project: Project) {
+		editingId = project.id;
+		editTitle = project.title;
+		editDesc = project.description;
+		editWeek = project.week;
+		editType = project.type;
+		editDemoURL = project.demoURL || '';
+		editGithubURL = project.githubURL || '';
+	}
+
+	function cancelEdit() {
+		editingId = null;
+	}
+
+	async function handleSaveEdit() {
+		if (!editingId || !editTitle.trim() || !user) return;
+		if (isTestMode) {
+			projects = projects.map(p => p.id === editingId ? {
+				...p,
+				title: editTitle.trim(),
+				description: editDesc.trim(),
+				week: editWeek,
+				type: editType,
+				demoURL: editDemoURL.trim() || null,
+				githubURL: editGithubURL.trim() || null,
+			} : p);
+		} else {
+			await updateProject(editingId, {
+				title: editTitle.trim(),
+				description: editDesc.trim(),
+				week: editWeek,
+				type: editType,
+				demoURL: editDemoURL.trim() || null,
+				githubURL: editGithubURL.trim() || null,
+			});
+			projects = await getProjectsByUser(user.uid);
+		}
+		editingId = null;
 	}
 
 	async function handleDelete(id: string) {
@@ -218,35 +267,76 @@
 			<div class="projects">
 				{#each projects as project, i}
 					<article class="project-card" style="animation-delay: {i * 80}ms">
-						<div class="card-top">
-							<span class="week">Week {project.week}</span>
-							<span class="type-tag">{project.type}</span>
-							{#if isOwner}
-								<button class="delete-btn" onclick={() => handleDelete(project.id)}>삭제</button>
+						{#if editingId === project.id}
+							<!-- ★ 수정 모드 -->
+							<div class="form-grid">
+								<div class="form-full">
+									<label class="form-label">프로젝트 이름</label>
+									<input type="text" bind:value={editTitle} class="form-input" />
+								</div>
+								<div class="form-full">
+									<label class="form-label">설명</label>
+									<textarea bind:value={editDesc} rows="2" class="form-input form-textarea"></textarea>
+								</div>
+								<div>
+									<label class="form-label">주차</label>
+									<input type="number" bind:value={editWeek} min="1" max="16" class="form-input" />
+								</div>
+								<div>
+									<label class="form-label">종류</label>
+									<select bind:value={editType} class="form-input">
+										<option value="web">Web</option>
+										<option value="app">App</option>
+										<option value="tool">Tool</option>
+										<option value="other">Other</option>
+									</select>
+								</div>
+								<div class="form-full">
+									<label class="form-label">데모 URL</label>
+									<input type="url" bind:value={editDemoURL} placeholder="https://..." class="form-input" />
+								</div>
+								<div class="form-full">
+									<label class="form-label">GitHub URL</label>
+									<input type="url" bind:value={editGithubURL} placeholder="https://github.com/..." class="form-input" />
+								</div>
+								<div class="form-full edit-btns">
+									<button class="submit-btn" onclick={handleSaveEdit} disabled={!editTitle.trim()}>저장</button>
+									<button class="cancel-btn" onclick={cancelEdit}>취소</button>
+								</div>
+							</div>
+						{:else}
+							<!-- 보기 모드 -->
+							<div class="card-top">
+								<span class="week">Week {project.week}</span>
+								<span class="type-tag">{project.type}</span>
+								{#if isOwner}
+									<button class="edit-btn" onclick={() => startEdit(project)}>수정</button>
+									<button class="delete-btn" onclick={() => handleDelete(project.id)}>삭제</button>
+								{/if}
+							</div>
+							<h2 class="project-title">{project.title}</h2>
+							{#if project.description}
+								<p class="project-desc">{project.description}</p>
 							{/if}
-						</div>
-						<h2 class="project-title">{project.title}</h2>
-						{#if project.description}
-							<p class="project-desc">{project.description}</p>
-						{/if}
 
-						<div class="link-buttons">
-							{#if project.demoURL}
-								<a href={project.demoURL} target="_blank" rel="noopener" class="link-btn demo-btn">
-									<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2h8v8M14 2L6 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-									데모 보기
-								</a>
-							{/if}
-							{#if project.githubURL}
-								<a href={project.githubURL} target="_blank" rel="noopener" class="link-btn github-btn">
-									<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-									GitHub
-								</a>
-							{/if}
-							{#if !project.demoURL && !project.githubURL}
-								<span class="no-links">링크 없음</span>
-							{/if}
-						</div>
+							<div class="link-buttons">
+								{#if project.demoURL}
+									<a href={project.demoURL} target="_blank" rel="noopener" class="link-btn demo-btn">
+										<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2h8v8M14 2L6 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+										데모 보기
+									</a>
+								{/if}
+								{#if project.githubURL}
+									<a href={project.githubURL} target="_blank" rel="noopener" class="link-btn github-btn">
+										<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+										GitHub
+									</a>
+								{/if}
+								{#if !project.demoURL && !project.githubURL}
+									<span class="no-links">링크 없음</span>
+								{/if}
+							</div>
+						{/if}
 					</article>
 				{/each}
 			</div>
@@ -550,8 +640,43 @@
 		border-style: solid;
 	}
 
-	.delete-btn {
+	.edit-btn {
 		margin-left: auto;
+		font-size: 10px;
+		color: #a78bfa;
+		background: rgba(167, 139, 250, 0.08);
+		border: 1px solid rgba(167, 139, 250, 0.15);
+		border-radius: 6px;
+		padding: 2px 8px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+	.edit-btn:hover {
+		background: rgba(167, 139, 250, 0.2);
+		border-color: rgba(167, 139, 250, 0.4);
+	}
+
+	.edit-btns {
+		display: flex;
+		gap: 8px;
+	}
+
+	.cancel-btn {
+		flex: 1;
+		padding: 10px;
+		border-radius: 10px;
+		border: 1px solid rgba(167, 139, 250, 0.2);
+		background: transparent;
+		color: #9890b0;
+		font-size: 14px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+	.cancel-btn:hover {
+		background: rgba(167, 139, 250, 0.08);
+	}
+
+	.delete-btn {
 		font-size: 10px;
 		color: #e07a6b;
 		background: rgba(224, 122, 107, 0.08);
