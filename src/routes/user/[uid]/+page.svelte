@@ -24,6 +24,7 @@
 	let newType = $state<ProjectType>('web');
 	let newDemoURL = $state('');
 	let newGithubURL = $state('');
+	let newFinalURL = $state('');
 	let isSubmitting = $state(false);
 
 	// ★ 테스트 유저용 가짜 이름 목록
@@ -61,6 +62,7 @@
 				type: 'web',
 				demoURL: 'https://example.com',
 				githubURL: 'https://github.com/example',
+				finalURL: 'https://example.com/final',
 				thumbnail: null,
 				createdAt: new Date(),
 			}];
@@ -86,6 +88,7 @@
 				type: newType,
 				demoURL: newDemoURL.trim() || null,
 				githubURL: newGithubURL.trim() || null,
+				finalURL: newFinalURL.trim() || null,
 				thumbnail: null,
 				createdAt: new Date(),
 			}];
@@ -98,12 +101,13 @@
 				type: newType,
 				demoURL: newDemoURL.trim() || null,
 				githubURL: newGithubURL.trim() || null,
+				finalURL: newFinalURL.trim() || null,
 				thumbnail: null
 			});
 			projects = await getProjectsByUser(user.uid);
 		}
 
-		newTitle = ''; newDesc = ''; newDemoURL = ''; newGithubURL = '';
+		newTitle = ''; newDesc = ''; newDemoURL = ''; newGithubURL = ''; newFinalURL = '';
 		showForm = false;
 		isSubmitting = false;
 	}
@@ -116,6 +120,7 @@
 	let editType = $state<ProjectType>('web');
 	let editDemoURL = $state('');
 	let editGithubURL = $state('');
+	let editFinalURL = $state('');
 
 	function startEdit(project: Project) {
 		editingId = project.id;
@@ -125,6 +130,7 @@
 		editType = project.type;
 		editDemoURL = project.demoURL || '';
 		editGithubURL = project.githubURL || '';
+		editFinalURL = project.finalURL || '';
 	}
 
 	function cancelEdit() {
@@ -142,6 +148,7 @@
 				type: editType,
 				demoURL: editDemoURL.trim() || null,
 				githubURL: editGithubURL.trim() || null,
+				finalURL: editFinalURL.trim() || null,
 			} : p);
 		} else {
 			await updateProject(editingId, {
@@ -151,6 +158,7 @@
 				type: editType,
 				demoURL: editDemoURL.trim() || null,
 				githubURL: editGithubURL.trim() || null,
+				finalURL: editFinalURL.trim() || null,
 			});
 			projects = await getProjectsByUser(user.uid);
 		}
@@ -246,6 +254,10 @@
 						<input type="url" bind:value={newGithubURL} placeholder="https://github.com/..." class="form-input" />
 					</div>
 					<div class="form-full">
+						<label class="form-label">최종본 URL</label>
+						<input type="url" bind:value={newFinalURL} placeholder="https://... (배포된 최종 버전)" class="form-input" />
+					</div>
+					<div class="form-full">
 						<button class="submit-btn" onclick={handleCreate} disabled={!newTitle.trim() || isSubmitting}>
 							{isSubmitting ? '등록 중...' : '등록'}
 						</button>
@@ -299,6 +311,10 @@
 									<label class="form-label">GitHub URL</label>
 									<input type="url" bind:value={editGithubURL} placeholder="https://github.com/..." class="form-input" />
 								</div>
+								<div class="form-full">
+									<label class="form-label">최종본 URL</label>
+									<input type="url" bind:value={editFinalURL} placeholder="https://... (배포된 최종 버전)" class="form-input" />
+								</div>
 								<div class="form-full edit-btns">
 									<button class="submit-btn" onclick={handleSaveEdit} disabled={!editTitle.trim()}>저장</button>
 									<button class="cancel-btn" onclick={cancelEdit}>취소</button>
@@ -332,7 +348,13 @@
 										GitHub
 									</a>
 								{/if}
-								{#if !project.demoURL && !project.githubURL}
+								{#if project.finalURL}
+									<a href={project.finalURL} target="_blank" rel="noopener" class="link-btn final-btn">
+										<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v6M5 8h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+										최종본
+									</a>
+								{/if}
+								{#if !project.demoURL && !project.githubURL && !project.finalURL}
 									<span class="no-links">링크 없음</span>
 								{/if}
 							</div>
@@ -585,6 +607,17 @@
 		background: rgba(167, 139, 250, 0.22);
 		border-color: rgba(167, 139, 250, 0.4);
 		box-shadow: 0 0 12px rgba(167, 139, 250, 0.15);
+	}
+
+	.final-btn {
+		background: rgba(240, 224, 80, 0.12);
+		color: #f0e050;
+		border: 1px solid rgba(240, 224, 80, 0.2);
+	}
+	.final-btn:hover {
+		background: rgba(240, 224, 80, 0.22);
+		border-color: rgba(240, 224, 80, 0.4);
+		box-shadow: 0 0 12px rgba(240, 224, 80, 0.15);
 	}
 
 	.no-links {

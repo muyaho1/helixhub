@@ -28,6 +28,7 @@ export interface Project {
 	type: ProjectType; // web / app / tool / other
 	demoURL: string | null; // 데모 링크
 	githubURL: string | null; // 깃허브 링크
+	finalURL: string | null; // 최종본 링크
 	thumbnail: string | null; // 썸네일 이미지 URL (Phase 3)
 	createdAt: Date; // 등록 날짜
 }
