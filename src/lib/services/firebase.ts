@@ -256,12 +256,10 @@ export async function updateProject(
 /** 프로젝트 삭제
  * userId를 넘기면 Storage 썸네일도 함께 정리 */
 export async function deleteProject(projectId: string, userId?: string): Promise<void> {
-	// ★ userId가 있으면 Storage 썸네일 전체 삭제 (폴더 단위)
+	// ★ userId가 있으면 Storage 썸네일 전체 삭제 (기존 단일 파일 포함)
 	if (userId) {
-		const { deleteAllThumbnails, deleteThumbnail } = await import('./storage');
+		const { deleteAllThumbnails } = await import('./storage');
 		await deleteAllThumbnails(userId, projectId);
-		// 하위 호환: 기존 단일 파일 경로도 삭제 시도
-		await deleteThumbnail(userId, projectId);
 	}
 	const db = getFirebaseDb();
 	await deleteDoc(doc(db, 'projects', projectId));

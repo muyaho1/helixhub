@@ -1,5 +1,9 @@
 // Firebase Storage — 프로젝트 스크린샷 업로드/삭제 (여러 장 지원)
 // ⚠️ Firebase Console에서 Storage를 활성화하고 규칙을 설정해야 합니다!
+//
+// ★ Storage 경로 구조: thumbnails/{userId}/{projectId}_img{index}
+//   예: thumbnails/abc123/proj456_img0, thumbnails/abc123/proj456_img1, ...
+//   이렇게 하면 기존 Storage 규칙 (thumbnails/{userId}/{projectId}) 과 호환됨
 
 import {
 	getStorage,
@@ -7,7 +11,6 @@ import {
 	uploadBytes,
 	getDownloadURL,
 	deleteObject,
-	listAll,
 	type FirebaseStorage
 } from 'firebase/storage';
 import { browser } from '$app/environment';
@@ -55,7 +58,7 @@ export function validateImageFiles(files: File[], currentCount: number = 0): str
 }
 
 /** 단일 이미지 업로드 → 다운로드 URL 반환
- * 파일명에 타임스탬프를 넣어 여러 장 구분 */
+ * ★ 경로: thumbnails/{userId}/{projectId}_img{index} — 3단계 구조로 기존 규칙 호환 */
 export async function uploadThumbnail(
 	userId: string,
 	projectId: string,
@@ -65,8 +68,8 @@ export async function uploadThumbnail(
 	if (!browser) throw new Error('브라우저에서만 업로드 가능');
 
 	const storage = getFirebaseStorage();
-	// Storage 경로: thumbnails/{userId}/{projectId}/{index}
-	const storageRef = ref(storage, `thumbnails/${userId}/${projectId}/${index}`);
+	// ★ 3단계 경로: thumbnails/{userId}/{projectId}_img{index}
+	const storageRef = ref(storage, `thumbnails/${userId}/${projectId}_img${index}`);
 
 	await uploadBytes(storageRef, file, { contentType: file.type });
 	return getDownloadURL(storageRef);
@@ -87,40 +90,41 @@ export async function uploadThumbnails(
 	return urls;
 }
 
-/** 프로젝트의 모든 썸네일 삭제 — 프로젝트 삭제 시 호출 */
+/** 프로젝트의 모든 썸네일 삭제 — 프로젝트 삭제 시 호출
+ * ★ 인덱스 0~MAX_FILES-1 까지 시도 (없으면 무시) */
 export async function deleteAllThumbnails(
 	userId: string,
 	projectId: string
 ): Promise<void> {
 	if (!browser) return;
 
-	try {
-		const storage = getFirebaseStorage();
-		const folderRef = ref(storage, `thumbnails/${userId}/${projectId}`);
-		const list = await listAll(folderRef);
-		await Promise.all(list.items.map((item) => deleteObject(item)));
-	} catch (error: any) {
-		if (error?.code !== 'storage/object-not-found') {
-			console.error('썸네일 전체 삭제 실패:', error);
-		}
-	}
-}
+	const storage = getFirebaseStorage();
+	const deletePromises: Promise<void>[] = [];
 
-/** 하위 호환: 기존 단일 thumbnail 경로 삭제 */
-export async function deleteThumbnail(
-	userId: string,
-	projectId: string
-): Promise<void> {
-	if (!browser) return;
-	try {
-		const storage = getFirebaseStorage();
-		const storageRef = ref(storage, `thumbnails/${userId}/${projectId}`);
-		await deleteObject(storageRef);
-	} catch (error: any) {
-		if (error?.code !== 'storage/object-not-found') {
-			console.error('썸네일 삭제 실패:', error);
-		}
+	// ★ 가능한 모든 인덱스 파일 삭제 시도
+	for (let i = 0; i < MAX_FILES; i++) {
+		const storageRef = ref(storage, `thumbnails/${userId}/${projectId}_img${i}`);
+		deletePromises.push(
+			deleteObject(storageRef).catch((error: any) => {
+				// 파일 없으면 무시
+				if (error?.code !== 'storage/object-not-found') {
+					console.error(`썸네일 ${i} 삭제 실패:`, error);
+				}
+			})
+		);
 	}
+
+	// ★ 하위 호환: 기존 단일 파일 경로도 삭제 시도 (thumbnails/{userId}/{projectId})
+	const oldRef = ref(storage, `thumbnails/${userId}/${projectId}`);
+	deletePromises.push(
+		deleteObject(oldRef).catch((error: any) => {
+			if (error?.code !== 'storage/object-not-found') {
+				console.error('기존 썸네일 삭제 실패:', error);
+			}
+		})
+	);
+
+	await Promise.all(deletePromises);
 }
 
 export { MAX_FILES };
