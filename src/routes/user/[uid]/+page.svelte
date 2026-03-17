@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { getUserById, getProjectsByUser, createProject, deleteProject, updateProject } from '$lib/services/firebase';
-	import { uploadThumbnail, validateImageFile } from '$lib/services/storage';
+	import { uploadThumbnails, validateImageFiles, MAX_FILES } from '$lib/services/storage';
 	import { getCurrentUser } from '$lib/stores/auth.svelte';
 	import { onMount } from 'svelte';
 	import type { User, Project, ProjectType } from '$lib/types';
@@ -28,20 +28,26 @@
 	let newFinalURL = $state('');
 	let isSubmitting = $state(false);
 
-	// ★ 새 프로젝트 썸네일 상태
-	let newThumbnailFile = $state<File | null>(null);
-	let newThumbnailPreview = $state('');
-	let thumbnailError = $state('');
+	// ★ 새 프로젝트 이미지 상태 (여러 장)
+	let newImageFiles = $state<File[]>([]);
+	let newImagePreviews = $state<string[]>([]);
+	let newImageError = $state('');
 	let isUploading = $state(false);
 
-	// ★ 수정 폼 썸네일 상태
-	let editThumbnailFile = $state<File | null>(null);
-	let editThumbnailPreview = $state('');
-	let editThumbnailError = $state('');
+	// ★ 수정 폼 이미지 상태
+	let editImageFiles = $state<File[]>([]);
+	let editImagePreviews = $state<string[]>([]);
+	let editExistingThumbnails = $state<string[]>([]);
+	let editImageError = $state('');
 
 	// ★ 드래그 상태 (시각 피드백용)
 	let isDraggingNew = $state(false);
 	let isDraggingEdit = $state(false);
+
+	// ★ 라이트박스 상태
+	let lightboxImages = $state<string[]>([]);
+	let lightboxIndex = $state(0);
+	let lightboxOpen = $state(false);
 
 	// ★ 테스트 유저용 가짜 이름 목록
 	const TEST_NAMES = ['김민수', '이서연', '박지호', '최유진', '정도윤', '강하은', '윤시우', '한소율', '임준서', '오다은'];
@@ -51,12 +57,10 @@
 		const uid = page.params.uid ?? '';
 		if (!uid) { isLoading = false; return; }
 
-		// ★ 테스트 모드 감지
 		const urlParams = new URLSearchParams(window.location.search);
 		isTestMode = urlParams.get('test') === '1' && uid.startsWith('test-');
 
 		if (isTestMode) {
-			// 가짜 유저 데이터 생성
 			const idx = parseInt(uid.replace('test-', ''));
 			user = {
 				uid,
@@ -68,7 +72,6 @@
 				position: idx + 1,
 				createdAt: new Date(),
 			};
-			// 가짜 프로젝트 1개
 			projects = [{
 				id: 'test-proj-1',
 				userId: uid,
@@ -79,7 +82,7 @@
 				demoURL: 'https://example.com',
 				githubURL: 'https://github.com/example',
 				finalURL: 'https://example.com/final',
-				thumbnail: null,
+				thumbnails: [],
 				createdAt: new Date(),
 			}];
 		} else {
@@ -89,62 +92,64 @@
 		isLoading = false;
 	});
 
-	// ── 썸네일 핸들러 ──
+	// ── 이미지 핸들러 (여러 장) ──
 
-	/** 새 프로젝트 폼: 파일 선택/드롭 시 검증 + 미리보기 */
-	function handleNewThumbnail(event: Event) {
+	function handleNewImages(event: Event) {
 		const input = event.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file) return;
-		processNewThumbnail(file);
+		const files = Array.from(input.files ?? []);
+		if (files.length === 0) return;
+		processNewImages(files);
+		// ★ input value 리셋 — 같은 파일 재선택 가능하게
+		input.value = '';
 	}
 
-	function processNewThumbnail(file: File) {
-		thumbnailError = '';
-		const error = validateImageFile(file);
+	function processNewImages(files: File[]) {
+		newImageError = '';
+		const error = validateImageFiles(files, newImageFiles.length);
 		if (error) {
-			thumbnailError = error;
-			newThumbnailFile = null;
-			newThumbnailPreview = '';
+			newImageError = error;
 			return;
 		}
-		newThumbnailFile = file;
-		newThumbnailPreview = URL.createObjectURL(file);
+		newImageFiles = [...newImageFiles, ...files];
+		newImagePreviews = [...newImagePreviews, ...files.map(f => URL.createObjectURL(f))];
 	}
 
-	/** 수정 폼: 파일 선택/드롭 시 검증 + 미리보기 */
-	function handleEditThumbnail(event: Event) {
+	function removeNewImage(index: number) {
+		URL.revokeObjectURL(newImagePreviews[index]);
+		newImageFiles = newImageFiles.filter((_, i) => i !== index);
+		newImagePreviews = newImagePreviews.filter((_, i) => i !== index);
+		newImageError = '';
+	}
+
+	function handleEditImages(event: Event) {
 		const input = event.target as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file) return;
-		processEditThumbnail(file);
+		const files = Array.from(input.files ?? []);
+		if (files.length === 0) return;
+		processEditImages(files);
+		input.value = '';
 	}
 
-	function processEditThumbnail(file: File) {
-		editThumbnailError = '';
-		const error = validateImageFile(file);
+	function processEditImages(files: File[]) {
+		editImageError = '';
+		const totalCount = editExistingThumbnails.length + editImageFiles.length;
+		const error = validateImageFiles(files, totalCount);
 		if (error) {
-			editThumbnailError = error;
-			editThumbnailFile = null;
-			editThumbnailPreview = '';
+			editImageError = error;
 			return;
 		}
-		editThumbnailFile = file;
-		editThumbnailPreview = URL.createObjectURL(file);
+		editImageFiles = [...editImageFiles, ...files];
+		editImagePreviews = [...editImagePreviews, ...files.map(f => URL.createObjectURL(f))];
 	}
 
-	/** 새 프로젝트 미리보기 제거 */
-	function clearNewThumbnail() {
-		newThumbnailFile = null;
-		newThumbnailPreview = '';
-		thumbnailError = '';
+	function removeEditNewImage(index: number) {
+		URL.revokeObjectURL(editImagePreviews[index]);
+		editImageFiles = editImageFiles.filter((_, i) => i !== index);
+		editImagePreviews = editImagePreviews.filter((_, i) => i !== index);
+		editImageError = '';
 	}
 
-	/** 수정 폼 미리보기 제거 */
-	function clearEditThumbnail() {
-		editThumbnailFile = null;
-		editThumbnailPreview = '';
-		editThumbnailError = '';
+	function removeEditExisting(index: number) {
+		editExistingThumbnails = editExistingThumbnails.filter((_, i) => i !== index);
 	}
 
 	// ── 드래그 앤 드롭 ──
@@ -156,25 +161,51 @@
 	function handleNewDrop(event: DragEvent) {
 		event.preventDefault();
 		isDraggingNew = false;
-		const file = event.dataTransfer?.files?.[0];
-		if (file) processNewThumbnail(file);
+		const files = Array.from(event.dataTransfer?.files ?? []);
+		if (files.length > 0) processNewImages(files);
 	}
 
 	function handleEditDrop(event: DragEvent) {
 		event.preventDefault();
 		isDraggingEdit = false;
-		const file = event.dataTransfer?.files?.[0];
-		if (file) processEditThumbnail(file);
+		const files = Array.from(event.dataTransfer?.files ?? []);
+		if (files.length > 0) processEditImages(files);
 	}
 
-	// ── CRUD 핸들러 (썸네일 업로드 통합) ──
+	// ── 라이트박스 ──
+
+	function openLightbox(images: string[], index: number) {
+		lightboxImages = images;
+		lightboxIndex = index;
+		lightboxOpen = true;
+	}
+
+	function closeLightbox() {
+		lightboxOpen = false;
+	}
+
+	function lightboxPrev() {
+		lightboxIndex = (lightboxIndex - 1 + lightboxImages.length) % lightboxImages.length;
+	}
+
+	function lightboxNext() {
+		lightboxIndex = (lightboxIndex + 1) % lightboxImages.length;
+	}
+
+	function handleLightboxKey(event: KeyboardEvent) {
+		if (!lightboxOpen) return;
+		if (event.key === 'Escape') closeLightbox();
+		else if (event.key === 'ArrowLeft') lightboxPrev();
+		else if (event.key === 'ArrowRight') lightboxNext();
+	}
+
+	// ── CRUD ──
 
 	async function handleCreate() {
 		if (!user || !newTitle.trim() || isSubmitting) return;
 		isSubmitting = true;
 
 		if (isTestMode) {
-			// ★ 테스트: Firebase 안 쓰고 로컬에 추가
 			projects = [...projects, {
 				id: `test-proj-${Date.now()}`,
 				userId: user.uid,
@@ -185,11 +216,10 @@
 				demoURL: newDemoURL.trim() || null,
 				githubURL: newGithubURL.trim() || null,
 				finalURL: newFinalURL.trim() || null,
-				thumbnail: newThumbnailPreview || null,
+				thumbnails: newImagePreviews.length > 0 ? [...newImagePreviews] : [],
 				createdAt: new Date(),
 			}];
 		} else {
-			// 1단계: 프로젝트 생성 (thumbnail: null)
 			const projectId = await createProject({
 				userId: user.uid,
 				title: newTitle.trim(),
@@ -199,27 +229,25 @@
 				demoURL: newDemoURL.trim() || null,
 				githubURL: newGithubURL.trim() || null,
 				finalURL: newFinalURL.trim() || null,
-				thumbnail: null
+				thumbnails: []
 			});
 
-			// 2단계: 파일이 있으면 업로드 후 thumbnail URL 저장
-			if (newThumbnailFile) {
+			if (newImageFiles.length > 0) {
 				isUploading = true;
 				try {
-					const url = await uploadThumbnail(user.uid, projectId, newThumbnailFile);
-					await updateProject(projectId, { thumbnail: url });
+					const urls = await uploadThumbnails(user.uid, projectId, newImageFiles, 0);
+					await updateProject(projectId, { thumbnails: urls });
 				} catch (e) {
-					console.error('썸네일 업로드 실패:', e);
-					// ⚠️ 프로젝트는 이미 생성됨 — 썸네일만 실패
+					console.error('이미지 업로드 실패:', e);
 				}
 				isUploading = false;
 			}
 			projects = await getProjectsByUser(user.uid);
 		}
 
-		// 폼 초기화 (썸네일 상태 포함)
+		// 폼 초기화
 		newTitle = ''; newDesc = ''; newDemoURL = ''; newGithubURL = ''; newFinalURL = '';
-		newThumbnailFile = null; newThumbnailPreview = ''; thumbnailError = '';
+		newImageFiles = []; newImagePreviews = []; newImageError = '';
 		showForm = false;
 		isSubmitting = false;
 	}
@@ -243,17 +271,18 @@
 		editDemoURL = project.demoURL || '';
 		editGithubURL = project.githubURL || '';
 		editFinalURL = project.finalURL || '';
-		// 썸네일 수정 상태 초기화
-		editThumbnailFile = null;
-		editThumbnailPreview = '';
-		editThumbnailError = '';
+		editExistingThumbnails = [...(project.thumbnails ?? [])];
+		editImageFiles = [];
+		editImagePreviews = [];
+		editImageError = '';
 	}
 
 	function cancelEdit() {
 		editingId = null;
-		editThumbnailFile = null;
-		editThumbnailPreview = '';
-		editThumbnailError = '';
+		editImageFiles = [];
+		editImagePreviews = [];
+		editImageError = '';
+		editExistingThumbnails = [];
 	}
 
 	async function handleSaveEdit() {
@@ -268,7 +297,7 @@
 				demoURL: editDemoURL.trim() || null,
 				githubURL: editGithubURL.trim() || null,
 				finalURL: editFinalURL.trim() || null,
-				thumbnail: editThumbnailPreview || p.thumbnail,
+				thumbnails: [...editExistingThumbnails, ...editImagePreviews],
 			} : p);
 		} else {
 			const updates: Record<string, any> = {
@@ -281,25 +310,29 @@
 				finalURL: editFinalURL.trim() || null,
 			};
 
-			// ★ 새 파일 선택 시 업로드 후 URL 반영
-			if (editThumbnailFile) {
+			let finalThumbnails = [...editExistingThumbnails];
+
+			if (editImageFiles.length > 0) {
 				isUploading = true;
 				try {
-					const url = await uploadThumbnail(user.uid, editingId, editThumbnailFile);
-					updates.thumbnail = url;
+					const startIdx = editExistingThumbnails.length;
+					const newUrls = await uploadThumbnails(user.uid, editingId, editImageFiles, startIdx);
+					finalThumbnails = [...finalThumbnails, ...newUrls];
 				} catch (e) {
-					console.error('썸네일 업로드 실패:', e);
+					console.error('이미지 업로드 실패:', e);
 				}
 				isUploading = false;
 			}
 
+			updates.thumbnails = finalThumbnails;
 			await updateProject(editingId, updates);
 			projects = await getProjectsByUser(user.uid);
 		}
 		editingId = null;
-		editThumbnailFile = null;
-		editThumbnailPreview = '';
-		editThumbnailError = '';
+		editImageFiles = [];
+		editImagePreviews = [];
+		editImageError = '';
+		editExistingThumbnails = [];
 	}
 
 	async function handleDelete(id: string) {
@@ -308,11 +341,13 @@
 			projects = projects.filter(p => p.id !== id);
 			return;
 		}
-		// ★ userId 전달하여 Storage 썸네일도 함께 삭제
 		await deleteProject(id, user?.uid);
 		if (user) projects = await getProjectsByUser(user.uid);
 	}
 </script>
+
+<!-- ★ 키보드 이벤트 리스너 (라이트박스용) -->
+<svelte:window onkeydown={handleLightboxKey} />
 
 <div class="page">
 	<a href="/" class="back-link">
@@ -358,7 +393,7 @@
 			{/if}
 		</div>
 
-		<!-- ★ 새 프로젝트 폼 (본인만 보임) -->
+		<!-- ★ 새 프로젝트 폼 -->
 		{#if isOwner && showForm}
 			<div class="form-card">
 				<div class="form-grid">
@@ -396,24 +431,30 @@
 						<input type="url" bind:value={newFinalURL} placeholder="https://... (배포된 최종 버전)" class="form-input" />
 					</div>
 
-					<!-- ★ 썸네일 업로드 영역 -->
+					<!-- ★ 이미지 업로드 (여러 장) -->
 					<div class="form-full">
-						<label class="form-label">스크린샷 / 썸네일</label>
-						{#if newThumbnailPreview}
-							<!-- 미리보기 -->
-							<div class="thumb-preview-wrap">
-								<img src={newThumbnailPreview} alt="미리보기" class="thumb-preview" />
-								<button class="thumb-remove" onclick={clearNewThumbnail} type="button" aria-label="미리보기 제거">
-									<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-								</button>
+						<label class="form-label">스크린샷 ({newImagePreviews.length}/{MAX_FILES})</label>
+
+						<!-- 미리보기 그리드 -->
+						{#if newImagePreviews.length > 0}
+							<div class="preview-grid">
+								{#each newImagePreviews as preview, i}
+									<div class="preview-item" style="animation-delay: {i * 60}ms">
+										<img src={preview} alt="미리보기 {i + 1}" class="preview-img" />
+										<button class="preview-remove" onclick={() => removeNewImage(i)} type="button">
+											<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+										</button>
+									</div>
+								{/each}
 							</div>
-						{:else}
-							<!-- 드래그 앤 드롭 / 클릭 업로드 영역 -->
+						{/if}
+
+						<!-- 업로드 영역 (MAX_FILES 미만일 때만 표시) -->
+						{#if newImagePreviews.length < MAX_FILES}
 							<label
 								class="upload-zone"
+								class:upload-zone--compact={newImagePreviews.length > 0}
 								class:upload-zone--drag={isDraggingNew}
-								role="button"
-								tabindex="0"
 								ondragover={handleDragOver}
 								ondragenter={() => isDraggingNew = true}
 								ondragleave={() => isDraggingNew = false}
@@ -422,21 +463,27 @@
 								<input
 									type="file"
 									accept="image/jpeg,image/png,image/webp,image/gif"
-									onchange={handleNewThumbnail}
+									multiple
+									onchange={handleNewImages}
 									class="upload-input"
 								/>
-								<div class="upload-icon">
-									<svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-										<path d="M16 22V10M16 10l-5 5M16 10l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-										<path d="M6 20v4a2 2 0 002 2h16a2 2 0 002-2v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-									</svg>
-								</div>
-								<span class="upload-text">이미지를 드래그하거나 클릭</span>
-								<span class="upload-hint">JPG, PNG, WebP, GIF · 최대 2MB</span>
+								{#if newImagePreviews.length === 0}
+									<div class="upload-icon">
+										<svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+											<path d="M16 22V10M16 10l-5 5M16 10l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+											<path d="M6 20v4a2 2 0 002 2h16a2 2 0 002-2v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+										</svg>
+									</div>
+									<span class="upload-text">이미지를 드래그하거나 클릭 (최대 {MAX_FILES}장)</span>
+									<span class="upload-hint">JPG, PNG, WebP, GIF · 각 2MB 이하</span>
+								{:else}
+									<span class="upload-text-sm">+ 이미지 추가 ({MAX_FILES - newImagePreviews.length}장 가능)</span>
+								{/if}
 							</label>
 						{/if}
-						{#if thumbnailError}
-							<p class="error-text">{thumbnailError}</p>
+
+						{#if newImageError}
+							<p class="error-text">{newImageError}</p>
 						{/if}
 					</div>
 
@@ -509,46 +556,37 @@
 									<input type="url" bind:value={editFinalURL} placeholder="https://... (배포된 최종 버전)" class="form-input" />
 								</div>
 
-								<!-- ★ 수정 폼 썸네일 업로드 -->
+								<!-- ★ 수정 폼 이미지 -->
 								<div class="form-full">
-									<label class="form-label">스크린샷 / 썸네일</label>
-									{#if editThumbnailPreview}
-										<div class="thumb-preview-wrap">
-											<img src={editThumbnailPreview} alt="미리보기" class="thumb-preview" />
-											<button class="thumb-remove" onclick={clearEditThumbnail} type="button" aria-label="미리보기 제거">
-												<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-											</button>
+									<label class="form-label">스크린샷 ({editExistingThumbnails.length + editImagePreviews.length}/{MAX_FILES})</label>
+
+									<!-- 기존 이미지 -->
+									{#if editExistingThumbnails.length > 0 || editImagePreviews.length > 0}
+										<div class="preview-grid">
+											{#each editExistingThumbnails as url, i}
+												<div class="preview-item">
+													<img src={url} alt="기존 이미지 {i + 1}" class="preview-img" />
+													<button class="preview-remove" onclick={() => removeEditExisting(i)} type="button">
+														<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+													</button>
+												</div>
+											{/each}
+											{#each editImagePreviews as preview, i}
+												<div class="preview-item" style="animation-delay: {i * 60}ms">
+													<img src={preview} alt="새 이미지 {i + 1}" class="preview-img" />
+													<button class="preview-remove" onclick={() => removeEditNewImage(i)} type="button">
+														<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+													</button>
+												</div>
+											{/each}
 										</div>
-									{:else if project.thumbnail}
-										<!-- 기존 썸네일 표시 + 변경 가능 -->
-										<div class="thumb-preview-wrap">
-											<img src={project.thumbnail} alt="현재 썸네일" class="thumb-preview" />
-											<span class="thumb-current-label">현재 이미지</span>
-										</div>
-										<label
-											class="upload-zone upload-zone--compact"
-											class:upload-zone--drag={isDraggingEdit}
-											role="button"
-											tabindex="0"
-											ondragover={handleDragOver}
-											ondragenter={() => isDraggingEdit = true}
-											ondragleave={() => isDraggingEdit = false}
-											ondrop={handleEditDrop}
-										>
-											<input
-												type="file"
-												accept="image/jpeg,image/png,image/webp,image/gif"
-												onchange={handleEditThumbnail}
-												class="upload-input"
-											/>
-											<span class="upload-text-sm">다른 이미지로 변경</span>
-										</label>
-									{:else}
+									{/if}
+
+									{#if editExistingThumbnails.length + editImagePreviews.length < MAX_FILES}
 										<label
 											class="upload-zone"
+											class:upload-zone--compact={editExistingThumbnails.length + editImagePreviews.length > 0}
 											class:upload-zone--drag={isDraggingEdit}
-											role="button"
-											tabindex="0"
 											ondragover={handleDragOver}
 											ondragenter={() => isDraggingEdit = true}
 											ondragleave={() => isDraggingEdit = false}
@@ -557,21 +595,27 @@
 											<input
 												type="file"
 												accept="image/jpeg,image/png,image/webp,image/gif"
-												onchange={handleEditThumbnail}
+												multiple
+												onchange={handleEditImages}
 												class="upload-input"
 											/>
-											<div class="upload-icon">
-												<svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-													<path d="M16 22V10M16 10l-5 5M16 10l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-													<path d="M6 20v4a2 2 0 002 2h16a2 2 0 002-2v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-												</svg>
-											</div>
-											<span class="upload-text">이미지를 드래그하거나 클릭</span>
-											<span class="upload-hint">JPG, PNG, WebP, GIF · 최대 2MB</span>
+											{#if editExistingThumbnails.length + editImagePreviews.length === 0}
+												<div class="upload-icon">
+													<svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+														<path d="M16 22V10M16 10l-5 5M16 10l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+														<path d="M6 20v4a2 2 0 002 2h16a2 2 0 002-2v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+													</svg>
+												</div>
+												<span class="upload-text">이미지를 드래그하거나 클릭 (최대 {MAX_FILES}장)</span>
+												<span class="upload-hint">JPG, PNG, WebP, GIF · 각 2MB 이하</span>
+											{:else}
+												<span class="upload-text-sm">+ 이미지 추가 ({MAX_FILES - editExistingThumbnails.length - editImagePreviews.length}장 가능)</span>
+											{/if}
 										</label>
 									{/if}
-									{#if editThumbnailError}
-										<p class="error-text">{editThumbnailError}</p>
+
+									{#if editImageError}
+										<p class="error-text">{editImageError}</p>
 									{/if}
 								</div>
 
@@ -605,16 +649,38 @@
 								<p class="project-desc">{project.description}</p>
 							{/if}
 
-							<!-- ★ 프로젝트 썸네일 표시 -->
-							{#if project.thumbnail}
-								<div class="card-thumbnail-wrap">
-									<img
-										src={project.thumbnail}
-										alt="{project.title} 스크린샷"
-										class="card-thumbnail"
-										loading="lazy"
-									/>
-									<div class="card-thumbnail-shine"></div>
+							<!-- ★ 이미지 갤러리 -->
+							{#if project.thumbnails && project.thumbnails.length > 0}
+								<div
+									class="gallery"
+									class:gallery--single={project.thumbnails.length === 1}
+									class:gallery--duo={project.thumbnails.length === 2}
+									class:gallery--multi={project.thumbnails.length >= 3}
+								>
+									{#each project.thumbnails as thumb, ti}
+										<button
+											class="gallery-item"
+											class:gallery-item--hero={project.thumbnails.length >= 3 && ti === 0}
+											onclick={() => openLightbox(project.thumbnails, ti)}
+											type="button"
+										>
+											<img
+												src={thumb}
+												alt="{project.title} 스크린샷 {ti + 1}"
+												class="gallery-img"
+												loading="lazy"
+											/>
+											<div class="gallery-shine"></div>
+											<!-- 여러 장일 때 마지막 아이템에 +N 표시 (5장 이상) -->
+											{#if project.thumbnails.length > 4 && ti === 3}
+												<div class="gallery-more">+{project.thumbnails.length - 4}</div>
+											{/if}
+										</button>
+										<!-- 4장까지만 그리드에 표시 -->
+										{#if ti >= 3 && project.thumbnails.length > 4}
+											<!-- 나머지는 라이트박스에서만 볼 수 있음 -->
+										{/if}
+									{/each}
 								</div>
 							{/if}
 
@@ -648,6 +714,55 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- ★ 라이트박스 모달 -->
+{#if lightboxOpen}
+	<div class="lightbox" onclick={closeLightbox} role="dialog" aria-modal="true">
+		<div class="lightbox-content" onclick={(e) => e.stopPropagation()}>
+			<img
+				src={lightboxImages[lightboxIndex]}
+				alt="확대 이미지 {lightboxIndex + 1}"
+				class="lightbox-img"
+			/>
+
+			<!-- 닫기 버튼 -->
+			<button class="lightbox-close" onclick={closeLightbox} aria-label="닫기">
+				<svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+					<path d="M4 4l12 12M16 4L4 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+				</svg>
+			</button>
+
+			<!-- 좌우 화살표 (여러 장일 때) -->
+			{#if lightboxImages.length > 1}
+				<button class="lightbox-arrow lightbox-arrow--left" onclick={lightboxPrev} aria-label="이전 이미지">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+						<path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+				<button class="lightbox-arrow lightbox-arrow--right" onclick={lightboxNext} aria-label="다음 이미지">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+						<path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+
+				<!-- 인디케이터 점 -->
+				<div class="lightbox-dots">
+					{#each lightboxImages as _, di}
+						<button
+							class="lightbox-dot"
+							class:lightbox-dot--active={di === lightboxIndex}
+							onclick={() => lightboxIndex = di}
+							aria-label="이미지 {di + 1}"
+						></button>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- 카운터 -->
+			<div class="lightbox-counter">{lightboxIndex + 1} / {lightboxImages.length}</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.page {
@@ -851,9 +966,10 @@
 		line-height: 1.5;
 	}
 
-	/* ── 카드 내 썸네일 이미지 ── */
-	.card-thumbnail-wrap {
-		position: relative;
+	/* ── 이미지 갤러리 (카드 내) ── */
+	.gallery {
+		display: grid;
+		gap: 6px;
 		margin-bottom: 16px;
 		border-radius: 12px;
 		overflow: hidden;
@@ -865,46 +981,104 @@
 		to { opacity: 1; transform: scale(1); }
 	}
 
-	.card-thumbnail {
+	.gallery--single {
+		grid-template-columns: 1fr;
+	}
+
+	.gallery--duo {
+		grid-template-columns: 1fr 1fr;
+	}
+
+	.gallery--multi {
+		grid-template-columns: 1fr 1fr;
+		grid-template-rows: auto auto;
+	}
+
+	.gallery-item {
+		position: relative;
+		overflow: hidden;
+		border-radius: 10px;
+		border: 1px solid rgba(167, 139, 250, 0.1);
+		cursor: pointer;
+		padding: 0;
+		background: none;
+		transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+	}
+
+	.gallery-item:hover {
+		border-color: rgba(107, 202, 173, 0.35);
+		box-shadow: 0 0 16px rgba(107, 202, 173, 0.1);
+		transform: scale(1.01);
+	}
+
+	.gallery-item--hero {
+		grid-column: 1 / -1;
+	}
+
+	.gallery-img {
 		display: block;
 		width: 100%;
-		max-height: 240px;
+		height: 100%;
 		object-fit: cover;
-		border-radius: 12px;
-		border: 1px solid rgba(167, 139, 250, 0.12);
-		transition: transform 0.4s ease, box-shadow 0.4s ease;
+		transition: transform 0.4s ease;
 	}
 
-	.card-thumbnail-wrap:hover .card-thumbnail {
-		transform: scale(1.015);
-		box-shadow:
-			0 0 20px rgba(107, 202, 173, 0.12),
-			0 0 40px rgba(167, 139, 250, 0.06);
+	.gallery--single .gallery-img {
+		max-height: 260px;
 	}
 
-	/* ★ 미세한 빛 반사 효과 — 호버 시 빛이 스캔하듯 지나감 */
-	.card-thumbnail-shine {
+	.gallery--duo .gallery-img {
+		height: 160px;
+	}
+
+	.gallery--multi .gallery-item--hero .gallery-img {
+		max-height: 220px;
+	}
+
+	.gallery--multi .gallery-item:not(.gallery-item--hero) .gallery-img {
+		height: 120px;
+	}
+
+	.gallery-item:hover .gallery-img {
+		transform: scale(1.03);
+	}
+
+	/* 호버 시 빛 반사 효과 */
+	.gallery-shine {
 		position: absolute;
 		inset: 0;
-		border-radius: 12px;
 		background: linear-gradient(
 			105deg,
 			transparent 40%,
-			rgba(107, 202, 173, 0.07) 45%,
-			rgba(167, 139, 250, 0.1) 50%,
+			rgba(107, 202, 173, 0.06) 45%,
+			rgba(167, 139, 250, 0.08) 50%,
 			transparent 55%
 		);
 		opacity: 0;
 		transform: translateX(-100%);
-		transition: opacity 0.3s;
 		pointer-events: none;
 	}
-	.card-thumbnail-wrap:hover .card-thumbnail-shine {
+	.gallery-item:hover .gallery-shine {
 		opacity: 1;
-		animation: shinePass 0.8s ease forwards;
+		animation: shinePass 0.7s ease forwards;
 	}
 	@keyframes shinePass {
 		to { transform: translateX(100%); }
+	}
+
+	/* +N 더보기 오버레이 */
+	.gallery-more {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(13, 11, 26, 0.65);
+		backdrop-filter: blur(4px);
+		color: var(--text-primary, #f0f0f8);
+		font-size: 18px;
+		font-weight: 700;
+		letter-spacing: 0.02em;
 	}
 
 	/* ── 링크 버튼들 ── */
@@ -1127,6 +1301,60 @@
 		cursor: not-allowed;
 	}
 
+	/* ── 미리보기 그리드 (폼 내) ── */
+	.preview-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+		gap: 8px;
+		margin-bottom: 8px;
+	}
+
+	.preview-item {
+		position: relative;
+		border-radius: 10px;
+		overflow: hidden;
+		aspect-ratio: 4 / 3;
+		animation: previewIn 0.3s ease both;
+	}
+
+	@keyframes previewIn {
+		from { opacity: 0; transform: scale(0.9); }
+		to { opacity: 1; transform: scale(1); }
+	}
+
+	.preview-img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		border: 1px solid rgba(167, 139, 250, 0.15);
+		border-radius: 10px;
+	}
+
+	.preview-remove {
+		position: absolute;
+		top: 4px;
+		right: 4px;
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		border: 1px solid rgba(224, 122, 107, 0.3);
+		background: rgba(13, 11, 26, 0.85);
+		backdrop-filter: blur(8px);
+		color: #e07a6b;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: all 0.2s;
+		padding: 0;
+	}
+	.preview-remove:hover {
+		background: rgba(224, 122, 107, 0.25);
+		border-color: rgba(224, 122, 107, 0.6);
+		transform: scale(1.15);
+	}
+
 	/* ── 업로드 영역 ── */
 	.upload-zone {
 		display: flex;
@@ -1151,11 +1379,7 @@
 		position: absolute;
 		inset: 0;
 		border-radius: 12px;
-		background: radial-gradient(
-			circle at 50% 50%,
-			rgba(167, 139, 250, 0.06) 0%,
-			transparent 70%
-		);
+		background: radial-gradient(circle at 50% 50%, rgba(167, 139, 250, 0.06) 0%, transparent 70%);
 		opacity: 0;
 		transition: opacity 0.3s;
 	}
@@ -1169,9 +1393,7 @@
 		box-shadow: 0 0 24px rgba(107, 202, 173, 0.06);
 	}
 
-	.upload-zone:hover::before {
-		opacity: 1;
-	}
+	.upload-zone:hover::before { opacity: 1; }
 
 	.upload-zone--drag {
 		border-color: #6bcaad !important;
@@ -1179,17 +1401,14 @@
 		background:
 			radial-gradient(ellipse at 50% 50%, rgba(107, 202, 173, 0.12) 0%, transparent 70%),
 			rgba(13, 11, 26, 0.6) !important;
-		box-shadow:
-			0 0 30px rgba(107, 202, 173, 0.1),
-			inset 0 0 30px rgba(107, 202, 173, 0.03) !important;
+		box-shadow: 0 0 30px rgba(107, 202, 173, 0.1), inset 0 0 30px rgba(107, 202, 173, 0.03) !important;
 		transform: scale(1.01);
 	}
 
 	.upload-zone--compact {
-		padding: 12px 16px;
+		padding: 14px 16px;
 		flex-direction: row;
 		gap: 10px;
-		margin-top: 8px;
 	}
 
 	.upload-input {
@@ -1237,65 +1456,6 @@
 		color: var(--text-secondary, #685d88);
 	}
 
-	/* ── 썸네일 미리보기 (폼 내) ── */
-	.thumb-preview-wrap {
-		position: relative;
-		border-radius: 12px;
-		overflow: hidden;
-		animation: previewIn 0.35s ease both;
-	}
-
-	@keyframes previewIn {
-		from { opacity: 0; transform: scale(0.95); }
-		to { opacity: 1; transform: scale(1); }
-	}
-
-	.thumb-preview {
-		display: block;
-		width: 100%;
-		max-height: 200px;
-		object-fit: cover;
-		border-radius: 12px;
-		border: 1px solid rgba(167, 139, 250, 0.15);
-	}
-
-	.thumb-remove {
-		position: absolute;
-		top: 8px;
-		right: 8px;
-		width: 28px;
-		height: 28px;
-		border-radius: 50%;
-		border: 1px solid rgba(224, 122, 107, 0.3);
-		background: rgba(13, 11, 26, 0.85);
-		backdrop-filter: blur(8px);
-		color: #e07a6b;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		transition: all 0.2s;
-		padding: 0;
-	}
-	.thumb-remove:hover {
-		background: rgba(224, 122, 107, 0.2);
-		border-color: rgba(224, 122, 107, 0.6);
-		transform: scale(1.1);
-	}
-
-	.thumb-current-label {
-		position: absolute;
-		bottom: 8px;
-		left: 8px;
-		font-size: 10px;
-		padding: 3px 8px;
-		border-radius: 6px;
-		background: rgba(13, 11, 26, 0.8);
-		backdrop-filter: blur(8px);
-		color: var(--text-secondary, #8880a8);
-		border: 1px solid rgba(167, 139, 250, 0.15);
-	}
-
 	/* ── 에러 메시지 ── */
 	.error-text {
 		margin: 6px 0 0;
@@ -1337,5 +1497,157 @@
 		border-top-color: #f0f0f8;
 		border-radius: 50%;
 		animation: spin 0.6s linear infinite;
+	}
+
+	/* ══════════════════════════════════════════
+	   라이트박스
+	   ══════════════════════════════════════════ */
+	.lightbox {
+		position: fixed;
+		inset: 0;
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(5, 3, 15, 0.88);
+		backdrop-filter: blur(20px);
+		animation: lbFadeIn 0.25s ease;
+		cursor: pointer;
+	}
+
+	@keyframes lbFadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	.lightbox-content {
+		position: relative;
+		max-width: 92vw;
+		max-height: 88vh;
+		cursor: default;
+		animation: lbZoomIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	@keyframes lbZoomIn {
+		from { opacity: 0; transform: scale(0.92); }
+		to { opacity: 1; transform: scale(1); }
+	}
+
+	.lightbox-img {
+		display: block;
+		max-width: 92vw;
+		max-height: 84vh;
+		object-fit: contain;
+		border-radius: 12px;
+		box-shadow:
+			0 0 60px rgba(107, 202, 173, 0.08),
+			0 0 120px rgba(167, 139, 250, 0.05),
+			0 25px 50px rgba(0, 0, 0, 0.5);
+		border: 1px solid rgba(167, 139, 250, 0.12);
+	}
+
+	.lightbox-close {
+		position: absolute;
+		top: -40px;
+		right: 0;
+		width: 36px;
+		height: 36px;
+		border-radius: 50%;
+		border: 1px solid rgba(240, 240, 248, 0.15);
+		background: rgba(13, 11, 26, 0.7);
+		backdrop-filter: blur(12px);
+		color: var(--text-primary, #f0f0f8);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: all 0.2s;
+		padding: 0;
+	}
+	.lightbox-close:hover {
+		background: rgba(224, 122, 107, 0.2);
+		border-color: rgba(224, 122, 107, 0.4);
+		transform: scale(1.1);
+	}
+
+	.lightbox-arrow {
+		position: absolute;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 44px;
+		height: 44px;
+		border-radius: 50%;
+		border: 1px solid rgba(240, 240, 248, 0.1);
+		background: rgba(13, 11, 26, 0.6);
+		backdrop-filter: blur(12px);
+		color: var(--text-primary, #f0f0f8);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: all 0.2s;
+		padding: 0;
+	}
+	.lightbox-arrow:hover {
+		background: rgba(107, 202, 173, 0.15);
+		border-color: rgba(107, 202, 173, 0.35);
+		box-shadow: 0 0 16px rgba(107, 202, 173, 0.12);
+		transform: translateY(-50%) scale(1.08);
+	}
+
+	.lightbox-arrow--left { left: -56px; }
+	.lightbox-arrow--right { right: -56px; }
+
+	/* 모바일에서 화살표 위치 조정 */
+	@media (max-width: 640px) {
+		.lightbox-arrow--left { left: 8px; }
+		.lightbox-arrow--right { right: 8px; }
+		.lightbox-arrow {
+			width: 36px;
+			height: 36px;
+			background: rgba(13, 11, 26, 0.8);
+		}
+	}
+
+	.lightbox-dots {
+		position: absolute;
+		bottom: -32px;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		gap: 8px;
+	}
+
+	.lightbox-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		border: 1px solid rgba(167, 139, 250, 0.3);
+		background: rgba(167, 139, 250, 0.1);
+		cursor: pointer;
+		padding: 0;
+		transition: all 0.25s;
+	}
+
+	.lightbox-dot--active {
+		background: #6bcaad;
+		border-color: #6bcaad;
+		box-shadow: 0 0 8px rgba(107, 202, 173, 0.4);
+		transform: scale(1.25);
+	}
+
+	.lightbox-dot:hover:not(.lightbox-dot--active) {
+		background: rgba(167, 139, 250, 0.3);
+		border-color: rgba(167, 139, 250, 0.5);
+	}
+
+	.lightbox-counter {
+		position: absolute;
+		top: -36px;
+		left: 0;
+		font-size: 12px;
+		color: var(--text-secondary, #8880a8);
+		font-weight: 500;
+		letter-spacing: 0.04em;
 	}
 </style>

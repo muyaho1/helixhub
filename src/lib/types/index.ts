@@ -29,7 +29,7 @@ export interface Project {
 	demoURL: string | null; // 데모 링크
 	githubURL: string | null; // 깃허브 링크
 	finalURL: string | null; // 최종본 링크
-	thumbnail: string | null; // 썸네일 이미지 URL (Phase 3)
+	thumbnails: string[]; // 스크린샷/썸네일 이미지 URL 목록
 	createdAt: Date; // 등록 날짜
 }
 

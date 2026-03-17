@@ -68,7 +68,7 @@
 			demoURL: newDemoURL.trim() || null,
 			githubURL: newGithubURL.trim() || null,
 			finalURL: null,
-			thumbnail: null
+			thumbnails: []
 		});
 		// 폼 초기화
 		newTitle = '';
