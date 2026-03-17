@@ -247,8 +247,14 @@ export async function updateProject(
 	await updateDoc(doc(db, 'projects', projectId), updates);
 }
 
-/** 프로젝트 삭제 */
-export async function deleteProject(projectId: string): Promise<void> {
+/** 프로젝트 삭제
+ * userId를 넘기면 Storage 썸네일도 함께 정리 */
+export async function deleteProject(projectId: string, userId?: string): Promise<void> {
+	// ★ userId가 있으면 Storage 썸네일 삭제 시도 (없어도 에러 안 남)
+	if (userId) {
+		const { deleteThumbnail } = await import('./storage');
+		await deleteThumbnail(userId, projectId);
+	}
 	const db = getFirebaseDb();
 	await deleteDoc(doc(db, 'projects', projectId));
 }
