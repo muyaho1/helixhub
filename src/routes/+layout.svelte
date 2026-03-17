@@ -61,7 +61,31 @@
 		await logout();
 		goto('/');
 	}
+
+	// ★ 전체화면 토글
+	let isFullscreen = $state(false);
+
+	async function toggleFullscreen() {
+		try {
+			if (!document.fullscreenElement) {
+				await document.documentElement.requestFullscreen();
+				isFullscreen = true;
+			} else {
+				await document.exitFullscreen();
+				isFullscreen = false;
+			}
+		} catch (e) {
+			console.warn('전체화면 전환 실패:', e);
+		}
+	}
+
+	// ★ ESC 등으로 전체화면 해제 시 상태 동기화
+	function handleFullscreenChange() {
+		isFullscreen = !!document.fullscreenElement;
+	}
 </script>
+
+<svelte:document onfullscreenchange={handleFullscreenChange} />
 
 <svelte:head>
 	<title>HelixHub</title>
@@ -75,6 +99,14 @@
 	</a>
 
 	<div class="flex items-center gap-4">
+		<!-- ★ 전체화면 토글 버튼 -->
+		<button onclick={toggleFullscreen} class="fullscreen-btn" aria-label={isFullscreen ? '전체화면 해제' : '전체화면'}>
+			{#if isFullscreen}
+				<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M6 2v4H2M12 2v4h4M6 16v-4H2M12 16v-4h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			{:else}
+				<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 6V2h4M12 2h4v4M2 12v4h4M16 12v4h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			{/if}
+		</button>
 		{#if user}
 			<a href="/profile" class="text-sm text-[var(--text-secondary)] hover:text-[var(--accent-lavender)]">
 				{user.name}
@@ -179,5 +211,26 @@
 		color: #685d88;
 		font-size: 13px;
 		cursor: pointer;
+	}
+
+	/* ── 전체화면 버튼 ── */
+	.fullscreen-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		border-radius: 8px;
+		border: 1px solid rgba(167, 139, 250, 0.15);
+		background: rgba(167, 139, 250, 0.06);
+		color: var(--text-secondary, #8880a8);
+		cursor: pointer;
+		transition: all 0.2s;
+		padding: 0;
+	}
+	.fullscreen-btn:hover {
+		background: rgba(167, 139, 250, 0.15);
+		border-color: rgba(167, 139, 250, 0.35);
+		color: #a78bfa;
 	}
 </style>
