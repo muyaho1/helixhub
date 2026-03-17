@@ -12,9 +12,11 @@
 	let isTestMode = $state(false);
 
 	// ★ 내 페이지인지 확인 (테스트 모드면 항상 owner)
+	// getCurrentUser()를 별도 $derived로 분리해야 auth 상태 변화 추적이 확실함
+	let currentUser = $derived(getCurrentUser());
 	let isOwner = $derived(
 		isTestMode ||
-		(!!user && !!getCurrentUser() && getCurrentUser()!.uid === user.uid)
+		(!!user && !!currentUser && currentUser.uid === user.uid)
 	);
 
 	// ★ 새 프로젝트 폼
